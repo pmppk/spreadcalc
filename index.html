@@ -21,11 +21,12 @@
   .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
   h1 { font-size: 22px; margin: 0 0 4px; }
   .sub { color: var(--muted); margin: 0 0 20px; }
-  .grid { display: grid; gap: 16px; grid-template-columns: 320px 1fr; align-items: start; }
+  .grid { display: grid; gap: 16px; grid-template-columns: 320px minmax(0, 1fr); align-items: start; }
   @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
   .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
-  .stack { display: grid; gap: 16px; }
+  .stack { display: grid; gap: 16px; min-width: 0; }
+  .card { min-width: 0; }
   label.f { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-bottom: 9px; }
   label.f span { color: var(--ink); }
   select, input[type=number] { background: var(--field); color: var(--ink); border: 1px solid var(--line);
@@ -59,10 +60,42 @@
   details summary { cursor: pointer; color: var(--ink); font-weight: 600; }
   details ul { padding-left: 18px; margin: 8px 0 0; }
   details li { margin-bottom: 4px; }
+  #sticky { display: none; }
+
+  @media (max-width: 900px) {
+    #sticky { display: flex; position: sticky; top: 0; z-index: 5; justify-content: space-between; align-items: baseline;
+      gap: 12px; padding: 8px 16px; margin: 0 -16px 12px; background: var(--card); border-bottom: 1px solid var(--line); }
+    #sticky b { font-size: 20px; font-variant-numeric: tabular-nums; }
+    #sticky span { color: var(--muted); font-size: 12.5px; }
+  }
+  @media (max-width: 600px) {
+    body { font-size: 14.5px; }
+    .wrap { padding: 14px 16px 40px; }
+    h1 { font-size: 20px; }
+    .card { padding: 14px; }
+    /* selects get a full-width row of their own so long option text is readable */
+    label.f:has(select) { grid-template-columns: 1fr; gap: 4px; }
+    select { width: 100%; min-width: 0; }
+    select, input[type=number] { font-size: 16px; padding: 8px 10px; }   /* 16px stops iOS zooming on focus */
+    label.f { margin-bottom: 12px; }
+    .kpis { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+    .kpi { padding: 10px; }
+    .kpi .v { font-size: 19px; }
+    .kpi.hero .v { font-size: 28px; }
+    .bkin { grid-template-columns: 1fr; }
+    .bkin input { width: 110px; }
+    button { padding: 8px 12px; }
+    /* bet table: keep the columns needed for setting bets, hide the two extras */
+    th, td { padding: 6px 4px; }
+    th { font-size: 11px; }
+    table input[type=number] { width: 64px; padding: 6px; }
+    table th:nth-child(5), table td:nth-child(5), table th:nth-child(7), table td:nth-child(7) { display: none; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
+  <div id="sticky"><span>Long-run edge</span><b id="stickyEdge">—</b></div>
   <h1>Blackjack Edge Calculator</h1>
   <p class="sub">Pick the rules, set your bet for each Hi-Lo true count, and get the long-run edge of the whole game.</p>
 
@@ -128,7 +161,7 @@
       <div class="card">
         <h2>Bet per true count</h2>
         <label class="f"><span>Bet spread</span>
-          <select id="spread"><option value="auto" selected>Table minimum with no edge, table maximum with an edge</option><option value="custom">Custom ramp (edit the bets below)</option></select></label>
+          <select id="spread"><option value="auto" selected>Min bet with no edge, max with an edge</option><option value="custom">Custom ramp (edit the bets below)</option></select></label>
         <div class="tools">
           <span style="color:var(--muted);font-size:13px">Custom presets:</span>
           <button data-ramp="flat">Flat 1</button>
@@ -274,6 +307,8 @@
     const res = BJEngine.evaluateBets(an, eff, { roundsPerHour: +$('rph').value || 100, unit: minD, boxes: an.rules.boxes });
     const oe = res.overallEdge;
     const heroLabel = oe >= 0 ? 'Player edge over the long run (per unit wagered)' : 'House edge over the long run (per unit wagered)';
+    $('stickyEdge').textContent = (oe >= 0 ? 'Player +' : 'House ') + Math.abs(oe * 100).toFixed(3) + '%';
+    $('stickyEdge').className = oe >= 0 ? 'good' : 'bad';
     $('kpis').innerHTML =
       kpi(heroLabel, oe >= 0 ? sPct(oe, 3) : fmtPct(-oe, 3), oe >= 0 ? 'good' : 'bad', true) +
       kpi('Flat-bet edge (same game)', sPct(res.flatEdge, 2), res.flatEdge >= 0 ? 'good' : 'bad') +
@@ -341,8 +376,12 @@
     });
   }
 
+  let lastAn = null;
   function chart(an) {
-    const W = 720, H = 300, L = 44, R = 10, T = 14, B = 34, mid = 150;
+    lastAn = an;
+    const W = Math.max(300, Math.round($('chart').clientWidth || 720)), narrow = W < 520;
+    const H = narrow ? 280 : 300, L = narrow ? 40 : 44, R = 6, T = 14, B = 34, mid = 150;
+    const tl = (t) => narrow ? (t === -1 ? '≤−1' : t === 10 ? '10+' : (t > 0 ? '+' + t : String(t))) : label(t);
     const n = an.buckets.length, bw = (W - L - R) / n;
     const maxE = Math.max(1, ...an.buckets.map(b => Math.abs(b.edge * 100)));
     const maxF = Math.max(...an.buckets.map(b => b.freq * 100));
@@ -362,11 +401,13 @@
       const x = L + i * bw + bw * 0.15, w = bw * 0.7, f = b.freq * 100, h = f * fScale;
       s += `<rect x="${x}" y="${H - B - h}" width="${w}" height="${Math.max(h, 0.5)}" rx="2" fill="var(--bar)"><title>TC ${label(b.tc)}: ${f.toFixed(2)}% of rounds</title></rect>`;
       s += `<text x="${x + w / 2}" y="${H - B - h - 3}" text-anchor="middle">${f >= 1 ? f.toFixed(0) : f.toFixed(1)}</text>`;
-      s += `<text x="${x + w / 2}" y="${H - 16}" text-anchor="middle">${label(b.tc)}</text>`;
+      s += `<text x="${x + w / 2}" y="${H - 16}" text-anchor="middle" ${narrow ? 'style="font-size:9.5px"' : ''}>${tl(b.tc)}</text>`;
     });
     s += `</svg>`;
     $('chart').innerHTML = s;
   }
+
+  window.addEventListener('resize', () => { if (lastAn) chart(lastAn); });
 
   // wiring
   let timer = null;
