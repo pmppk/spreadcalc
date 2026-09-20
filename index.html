@@ -125,6 +125,7 @@
         <label class="f"><span>Bet by</span>
           <select id="cs"><option value="hilo">Hi-Lo true count</option><option value="ko">KO running count</option><option value="ub" id="csUb" selected>Unbalanced running count (single deck)</option></select></label>
         <p class="hint" id="csHint" hidden></p>
+        <label class="f" id="nmeRow" hidden title="Single deck: you can't join mid-shoe. You must play the first hand after each shuffle, and once you sit out you can't come back until the next shuffle."><span>No mid-shoe entry / re-entry</span><input type="checkbox" id="nme" checked></label>
         <label class="f" id="shufRow" hidden><span>Single-deck shuffle</span>
           <select id="shuf"><option value="cut">Cut card at set %</option><option value="auto" selected>Auto (rounds per shuffle)</option></select></label>
         <label class="f"><span>Penetration (% dealt)</span><input type="number" id="pen" value="80" min="40" max="95" step="1"></label>
@@ -168,7 +169,7 @@
           <button data-ramp="1-4">1–4</button>
           <button data-ramp="1-8">1–8</button>
           <button data-ramp="1-12">1–12</button>
-          <button data-ramp="wong">Wong out &lt; +1, then 1–8</button>
+          <button data-ramp="wong" title="Sit out below count 0 and at 0 too (unless single deck with no mid-shoe entry, where the first hand must be played, so 1 unit at 0), then 1–8">Wong out, then 1–8</button>
         </div>
         <div class="tablewrap">
           <table>
@@ -176,7 +177,7 @@
             <tbody id="rows"></tbody>
           </table>
         </div>
-        <p class="hint">1 unit is the table minimum and bets are capped at the table maximum (a bet below 1 unit is raised to 1). The default spread bets the minimum at every count without a player edge and the maximum at every count with one; choose “Custom ramp” to type your own, where 0 sits out. The “≤ −1” bet applies to every count at or below −1, and “≥ +10” to every count at or above +10. Hi-Lo true count is floored to an integer.</p>
+        <p class="hint">With no mid-shoe entry (single deck) the first hand of every shoe is always played (at least 1 unit) and, once you sit out, you stay out until the next shuffle, so “Frequency” is the share of rounds you are seated at that count. 1 unit is the table minimum and bets are capped at the table maximum (a bet below 1 unit is raised to 1). The default spread bets the minimum at every count without a player edge and the maximum at every count with one; choose “Custom ramp” to type your own, where 0 sits out. The “≤ −1” bet applies to every count at or below −1, and “≥ +10” to every count at or above +10. Hi-Lo true count is floored to an integer.</p>
       </div>
 
       <div class="card">
@@ -190,6 +191,7 @@
           <ul>
             <li><b>Edge per count.</b> For each true-count bucket the shoe composition is rebuilt from the true count and the average decks remaining in that bucket. Every player two-card hand against every dealer upcard is then enumerated, with cards removed from the shoe. The play of each hand (hit, stand, double, split, surrender) is solved exactly, including resplits and the blackjack peek.</li>
             <li><b>Frequency per count.</b> A seeded 300,000-round shoe simulation of Hi-Lo counting with your deck count, penetration and number of other players gives how often each true count occurs at the start of a round. Other players use a simple hit/stand rule just to consume cards.</li>
+            <li><b>No mid-shoe entry (single deck).</b> On by default for one deck. You must play the first hand after each shuffle, and if you sit out (bet 0) you cannot re-enter until the next shuffle. Every simulated shoe is replayed in order against your bets to see which rounds you actually get to play, so leaving early costs you the later rounds. The first hand is a fresh deck at count 0 and is valued separately from the later rounds that reach the same count (which are worse for the player). The “Wong out” preset therefore bets 1 unit at count 0.</li>
             <li><b>Bet limits.</b> 1 unit is the table minimum; every bet is kept between it and the table maximum. In the default spread a count has “an edge” when its player edge (including insurance profit, if you selected it) is above zero.</li>
             <li><b>Combining.</b> Overall edge = Σ(frequency × bet × edge) / Σ(frequency × bet). Profit per round is in bet units; a bet of 0 is a sit-out, which is counted as a round dealt but not played.</li>
             <li><b>Strategy.</b> “Basic + count indices” assumes you play optimally for the current true count, which is what a perfect index-play deviation set achieves. “Basic strategy only” uses the fresh-shoe strategy at every count.</li>
@@ -219,7 +221,8 @@
     '1-4':  () => TCS.map(t => t <= 0 ? 1 : Math.min(4, 1 + t)),
     '1-8':  () => TCS.map(t => t <= 0 ? 1 : Math.min(8, 1 + t * 2)),
     '1-12': () => TCS.map(t => t <= 0 ? 1 : Math.min(12, 1 + t * 2.2 | 0)),
-    'wong': () => TCS.map(t => t <= 0 ? 0 : Math.min(8, t * 2)),
+    // with no mid-shoe entry you must play the first hand of every shoe (always at count 0), so bet 1 at 0
+    'wong': () => TCS.map(t => t < 0 ? 0 : t === 0 ? (+$('decks').value === 1 && $('nme').checked ? 1 : 0) : Math.min(8, t * 2)),
   };
 
   const fmtPct = (x, d = 2) => (x * 100).toFixed(d) + '%';
@@ -236,6 +239,7 @@
       boxes: +$('boxes').value || 1,
       strategy: $('strat').value,
       autoPen: +$('decks').value === 1 && $('shuf').value === 'auto',
+      noMidEntry: +$('decks').value === 1 && $('nme').checked,
       countSystem: $('cs').value === 'ko' ? 'ko' : (+$('decks').value === 1 && $('cs').value === 'ub' ? 'ub' : 'hilo'),
       insThreshold: Number.isFinite(+$('insT').value) && $('insT').value !== '' ? +$('insT').value : 3,
     };
@@ -276,6 +280,7 @@
     const an = analysis();
     const one = +$('decks').value === 1, auto = an.rules.autoPen;
     $('shufRow').hidden = !one;
+    $('nmeRow').hidden = !one;
     $('csUb').disabled = !one;
     if (!one && $('cs').value === 'ub') $('cs').value = 'hilo';
     const ub = an.sim.ub, sys = an.sim.sys;
@@ -319,13 +324,14 @@
       kpi('Expected profit / hour', money(res.dollarsPerHour), res.dollarsPerHour >= 0 ? 'good' : 'bad') +
       kpi('Std. dev. / round', res.sdPerRound.toFixed(2) + ' units') +
       kpi('N0 (rounds to 1 SD)', isFinite(res.n0) ? Math.round(res.n0).toLocaleString() : '—');
+    const view = an.buckets.map((b, i) => Object.assign({}, b, { freq: res.rows[i].freq, edge: res.rows[i].edge }));
     bankrollPanel(an, res);
     $('status').textContent = `Hands played: ${fmtPct(res.handsPlayedPct, 1)} of rounds dealt · strategy: ${{ index: 'basic + indices', basic: 'basic only', 'basic-ins': 'basic + insurance (⚑ always insured, ◐ sometimes)' }[an.rules.strategy]}`;
 
-    const evs = an.buckets.map((b, i) => b.freq * (eff[i] || 0) * b.edge);
+    const evs = view.map((b, i) => b.freq * (eff[i] || 0) * b.edge);
     const evTotal = evs.reduce((a, b) => a + b, 0);
     const trs = $('rows').querySelectorAll('tr');
-    an.buckets.forEach((b, i) => {
+    view.forEach((b, i) => {
       const tr = trs[i];
       const mark = b.insFrac >= 0.95 ? ' ⚑' : b.insFrac > 0.05 ? ' ◐' : '';
       tr.querySelector('[data-c=l]').textContent = label(b.tc) + mark;
@@ -336,7 +342,7 @@
       tr.querySelector('[data-c=m]').textContent = (b.meanTC >= 0 ? '+' : '−') + Math.abs(b.meanTC).toFixed(2);
       tr.querySelector('[data-c=s]').textContent = evTotal !== 0 && (eff[i] || 0) > 0 ? ((evs[i] / evTotal) * 100).toFixed(1) + '%' : '—';
     });
-    chart(an);
+    chart(view);
   }
 
   const kfmt = (x) => isFinite(x) ? money(x) : '—';
@@ -371,20 +377,20 @@
     const Bk = pos ? (bank > 0 ? bank / unit : pl.reqHours) : 0;
     const trs = $('rows').querySelectorAll('tr');
     an.buckets.forEach((b, i) => {
-      const kb = pos ? Math.min(limits.maxU, BJEngine.kellyBet(b.edge, Bk, boxes)) : 0;   // capped at the table maximum
+      const kb = pos ? Math.min(limits.maxU, BJEngine.kellyBet(res.rows[i].edge, Bk, boxes)) : 0;   // capped at the table maximum
       trs[i].querySelector('[data-c=k]').textContent = kb > 0 ? kb.toFixed(1) : '—';
     });
   }
 
   let lastAn = null;
-  function chart(an) {
-    lastAn = an;
+  function chart(rowsIn) {
+    lastAn = rowsIn;
     const W = Math.max(300, Math.round($('chart').clientWidth || 720)), narrow = W < 520;
     const H = narrow ? 280 : 300, L = narrow ? 40 : 44, R = 6, T = 14, B = 34, mid = 150;
     const tl = (t) => narrow ? (t === -1 ? '≤−1' : t === 10 ? '10+' : (t > 0 ? '+' + t : String(t))) : label(t);
-    const n = an.buckets.length, bw = (W - L - R) / n;
-    const maxE = Math.max(1, ...an.buckets.map(b => Math.abs(b.edge * 100)));
-    const maxF = Math.max(...an.buckets.map(b => b.freq * 100));
+    const n = rowsIn.length, bw = (W - L - R) / n;
+    const maxE = Math.max(1, ...rowsIn.map(b => Math.abs(b.edge * 100)));
+    const maxF = Math.max(...rowsIn.map(b => b.freq * 100));
     const fTop = mid + 26, fScale = (H - B - fTop) / maxF;
     // edge chart: baseline in the vertical middle of the upper area
     const top = T, bot = mid - 8, base = (top + bot) / 2, half = (bot - top) / 2;
@@ -392,12 +398,12 @@
     let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Edge and frequency by true count">`;
     s += `<line x1="${L}" x2="${W - R}" y1="${base}" y2="${base}" stroke="var(--line)"/>`;
     [-maxE, 0, maxE].forEach(v => { s += `<text x="${L - 6}" y="${base - v * es + 4}" text-anchor="end">${v > 0 ? '+' : ''}${v.toFixed(1)}%</text>`; });
-    an.buckets.forEach((b, i) => {
+    rowsIn.forEach((b, i) => {
       const x = L + i * bw + bw * 0.15, w = bw * 0.7, e = b.edge * 100, h = Math.abs(e) * es;
       s += `<rect x="${x}" y="${e >= 0 ? base - h : base}" width="${w}" height="${Math.max(h, 0.5)}" rx="2" fill="${e >= 0 ? 'var(--good)' : 'var(--bad)'}"><title>TC ${label(b.tc)}: edge ${sPct(b.edge, 2)}</title></rect>`;
     });
     s += `<text x="${L}" y="${mid + 14}" style="font-weight:600">Frequency of each true count (% of rounds)</text>`;
-    an.buckets.forEach((b, i) => {
+    rowsIn.forEach((b, i) => {
       const x = L + i * bw + bw * 0.15, w = bw * 0.7, f = b.freq * 100, h = f * fScale;
       s += `<rect x="${x}" y="${H - B - h}" width="${w}" height="${Math.max(h, 0.5)}" rx="2" fill="var(--bar)"><title>TC ${label(b.tc)}: ${f.toFixed(2)}% of rounds</title></rect>`;
       s += `<text x="${x + w / 2}" y="${H - B - h - 3}" text-anchor="middle">${f >= 1 ? f.toFixed(0) : f.toFixed(1)}</text>`;
@@ -407,12 +413,13 @@
     $('chart').innerHTML = s;
   }
 
+  $('decks').addEventListener('input', () => { if ($('decks').value === '1') $('nme').checked = true; });   // default on for single deck
   window.addEventListener('resize', () => { if (lastAn) chart(lastAn); });
 
   // wiring
   let timer = null;
   function schedule() { $('status').textContent = 'Calculating…'; clearTimeout(timer); timer = setTimeout(render, 30); }
-  ['insT', 'spread', 'tmin', 'tmax', 'ror', 'hours', 'bank', 'decks', 'shuf', 'cs', 'boxes', 'h17', 'bj', 'dbl', 'das', 'sur', 'maxh', 'rsa', 'hsa', 'pen', 'others', 'strat', 'rph']
+  ['nme', 'insT', 'spread', 'tmin', 'tmax', 'ror', 'hours', 'bank', 'decks', 'shuf', 'cs', 'boxes', 'h17', 'bj', 'dbl', 'das', 'sur', 'maxh', 'rsa', 'hsa', 'pen', 'others', 'strat', 'rph']
     .forEach(id => $(id).addEventListener('input', schedule));
   document.querySelectorAll('[data-ramp]').forEach(btn => btn.addEventListener('click', () => {
     bets = ramps[btn.dataset.ramp](); $('spread').value = 'custom'; buildRows(); render();

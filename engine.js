@@ -28,6 +28,7 @@
       boxes: 1,                   // boxes (spots) you play each round; each gets the same bet
       countSystem: 'hilo',        // 'hilo' true count | 'ub' unbalanced running count (single deck only) | 'ko' KO running count
       insThreshold: 3,            // insurance is taken when the count at the offer is >= this
+      noMidEntry: false,          // single deck: no mid-shoe entry / re-entry; you must play each shoe's first hand
       autoPen: false,             // single deck only: shuffle after N rounds (by player count)
       strategy: 'index',          // 'basic' | 'basic-ins' (basic + insurance at TC>=+3) | 'index' (optimal at each count)
     }, r || {});
@@ -361,6 +362,8 @@
 
     const buckets = [];
     for (let i = 0; i < 12; i++) buckets.push({ n: 0, sumTC: 0, sumR: 0, aceN: 0, insN: 0, insSum: 0 });
+    const first = { n: 0, sumTC: 0, sumR: 0, aceN: 0, insN: 0, insSum: 0 };   // first round after each shuffle only
+    const seq = new Uint8Array(rounds), fl = new Uint8Array(rounds);          // per round: bucket index, first-round flag
     const insDetail = {};   // diagnostics: insurance value by round-since-shuffle and count at the offer
     reshuffle();
     for (let round = 0; round < rounds; round++) {
@@ -370,8 +373,10 @@
       const tc = ub ? rc : rc / R;   // 'ub': raw running count from the top of the shoe
       let b = Math.floor(tc);
       if (b < -1) b = -1; if (b > 10) b = 10;
-      const B = buckets[b + 1];
+      const B = buckets[b + 1], isFirst = sinceShuffle === 1;
       B.n++; B.sumTC += tc; B.sumR += R;
+      seq[round] = b + 1; fl[round] = isFirst ? 1 : 0;
+      if (isFirst) { first.n++; first.sumTC += tc; first.sumR += R; }
 
       const players = [];
       for (let p = 0; p < spots; p++) players.push([draw(), draw()]);
@@ -381,13 +386,15 @@
       const rcSnap = rc, unseen = total - pos, tensSnap = tensSeen;
       const hole = draw();
       if (up === 1 && unseen > 0) {
-        B.aceN++;
+        B.aceN++; if (isFirst) first.aceN++;
         const cnt = ub ? rcSnap : rcSnap / Math.max(0.25, unseen / 52);
         const ev = 0.5 * (3 * (16 * D - tensSnap) / unseen - 1);
         const dk = sinceShuffle + '|' + Math.floor(cnt + 1e-9), dd = insDetail[dk] || (insDetail[dk] = { n: 0, sumEV: 0, sumSeen: 0 });
         dd.n++; dd.sumEV += ev; dd.sumSeen += total - unseen;
         if (cnt >= rules.insThreshold) {   // half-unit bet paying 2:1: EV = 0.5 * (3*P(ten) - 1), P(ten) from the true unseen cards
-          B.insN++; B.insSum += 0.5 * (3 * (16 * D - tensSnap) / unseen - 1);
+          const v = 0.5 * (3 * (16 * D - tensSnap) / unseen - 1);
+          B.insN++; B.insSum += v;
+          if (isFirst) { first.insN++; first.insSum += v; }
         }
       }
       const dBJ = (up === 1 && hole === 10) || (up === 10 && hole === 1);
@@ -412,7 +419,7 @@
       }
     }
     const avgPen = shuffles > 0 ? dealtAtShuffle / (shuffles * total) : rules.pen;
-    return { rounds, buckets, insDetail, avgPen, roundsPerShuffle: auto ? rps : null, auto, ub, sys, irc };
+    return { rounds, buckets, first, seq, fl, insDetail, avgPen, roundsPerShuffle: auto ? rps : null, auto, ub, sys, irc };
   }
 
   // ---------- top-level ----------
@@ -441,36 +448,79 @@
       }
       buckets.push({ tc, freq: b.n / sim.rounds, meanTC: mtc, meanR: mR, insFrac, insEV, edge: compositionEV(c, rules, basePols) + insEV });
     }
+    // no mid-shoe entry: the first hand of every shoe is played from a fresh deck, and the later
+    // rounds that share count 0 are a different (worse) mix, so give each its own edge
+    let firstEdge = null, b0LateEdge = null;
+    if (rules.noMidEntry && D === 1) {
+      const f = sim.first, b0 = sim.buckets[1];
+      const insOf = (n, sum) => (rules.strategy === 'basic-ins' && n > 0) ? sum / n : 0;
+      firstEdge = compositionEV(makeComposition(0, 1), rules, basePols) + insOf(f.n, f.insSum);
+      const nl = b0.n - f.n;
+      if (nl >= 30) {
+        const mtc = (b0.sumTC - f.sumTC) / nl, mR = (b0.sumR - f.sumR) / nl;
+        const c = sim.ub ? makeCompositionUnbal(mtc, mR, D, sim.sys, sim.irc) : makeComposition(mtc, mR);
+        b0LateEdge = compositionEV(c, rules, basePols) + insOf(nl, b0.insSum - f.insSum);
+      } else b0LateEdge = buckets[1].edge;
+    }
     // reference: fresh shoe basic strategy
     const c0 = makeComposition(0, D);
     const fresh = compositionEV(c0, rules, basePols || null);
-    return { rules, sim, buckets, freshEdge: fresh };
+    return { rules, sim, buckets, freshEdge: fresh, firstEdge, b0LateEdge };
   }
 
   const SIGMA2 = 1.32;  // variance of one box's result per unit bet (1.28-1.34 measured, test/corr.js)
   const COV_BOX = 0.49; // covariance between two boxes vs the same dealer hand (correlation ~0.37)
 
-  // Combine analysis with a bet ramp. bets: array of 12 bet sizes for TC -1..+10.
+  // Combine analysis with a bet ramp. bets: array of 12 bet sizes for counts -1..+10.
   function evaluateBets(an, bets, params) {
     params = Object.assign({ roundsPerHour: 100, unit: 25, boxes: 1 }, params || {});
     const n = params.boxes;
+    const rules = an.rules, N = an.sim.rounds;
+    const noEntry = !!(rules.noMidEntry && rules.decks === 1 && an.firstEdge !== null);
+    const Z = 1;   // index of the count-0 row (rows run from <= -1 at index 0)
+    const m2 = (bet, e) => bet * bet * (n * SIGMA2 + n * (n - 1) * COV_BOX + n * n * e * e);   // E[X^2] of a round
     let fb = 0, fbe = 0, fb2 = 0, fPlayed = 0, fe = 0, f = 0;
-    an.buckets.forEach((b, i) => {
-      const bet = bets[i] || 0;
-      f += b.freq;
-      fe += b.freq * b.edge;
-      if (bet > 0) fPlayed += b.freq;
-      fb += b.freq * bet;
-      fbe += b.freq * bet * b.edge;
-      fb2 += b.freq * bet * bet * (n * SIGMA2 + n * (n - 1) * COV_BOX + n * n * b.edge * b.edge);
-    });
+    const rows = an.buckets.map(b => ({ freq: b.freq, edge: b.edge }));
+    an.buckets.forEach((b, i) => { f += b.freq; fe += b.freq * b.edge; });
+    if (!noEntry) {
+      an.buckets.forEach((b, i) => {
+        const bet = bets[i] || 0;
+        if (bet > 0) fPlayed += b.freq;
+        fb += b.freq * bet; fbe += b.freq * bet * b.edge; fb2 += b.freq * m2(bet, b.edge);
+      });
+    } else {
+      // Walk the simulated shoes in order: you play each shoe's first hand, then keep playing until the
+      // count says to sit out (bet 0), after which you cannot re-enter until the next shuffle.
+      const seq = an.sim.seq, fl = an.sim.fl;
+      const seated = new Float64Array(12), seatedFirst = { v: 0 };
+      let inGame = false, played = 0, sumB = 0, sumBE = 0, sumB2 = 0;
+      for (let r = 0; r < N; r++) {
+        const bi = seq[r];   // row index (count + 1)
+        let bet, e;
+        if (fl[r]) { inGame = true; bet = bets[Z] > 0 ? bets[Z] : 1; e = an.firstEdge; seatedFirst.v++; }
+        else {
+          if (!inGame) continue;
+          seated[bi]++;
+          bet = bets[bi] || 0;
+          if (bet <= 0) { inGame = false; continue; }
+          e = bi === Z ? an.b0LateEdge : an.buckets[bi].edge;
+        }
+        played++; sumB += bet; sumBE += bet * e; sumB2 += m2(bet, e);
+      }
+      fPlayed = played / N; fb = sumB / N; fbe = sumBE / N; fb2 = sumB2 / N;
+      rows.forEach((row, i) => {
+        const late = seated[i], firstS = i === Z ? seatedFirst.v : 0;
+        row.freq = (late + firstS) / N;
+        if (i === Z && late + firstS > 0) row.edge = (late * an.b0LateEdge + firstS * an.firstEdge) / (late + firstS);
+      });
+    }
     const evRound = n * fbe;                         // in bet units, per round dealt, all boxes
     const varRound = fb2 - evRound * evRound;
     const overall = fb > 0 ? fbe / fb : 0;
     const flat = f > 0 ? fe / f : 0;
     return {
       overallEdge: overall, avgBet: fPlayed > 0 ? fb / fPlayed : 0, avgAction: fPlayed > 0 ? n * fb / fPlayed : 0, flatEdge: flat,
-      handsPlayedPct: fPlayed, evPerRound: evRound,
+      handsPlayedPct: fPlayed, evPerRound: evRound, rows, noEntry,
       evPerHour: evRound * params.roundsPerHour, dollarsPerHour: evRound * params.roundsPerHour * params.unit,
       varPerRound: Math.max(varRound, 0),
       sdPerRound: Math.sqrt(Math.max(varRound, 0)),

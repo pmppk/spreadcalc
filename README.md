@@ -28,6 +28,9 @@ The dealer peeks for blackjack (US rules). No-hole-card games are not modelled.
 - **Single-deck shuffle: Auto.** For one deck the shoe can instead be reshuffled after a fixed number
   of rounds by number of spots at the table: 1 → 5 rounds, 2 → 4, 3 → 3, 4–7 → 2. Everyone is assumed
   to play basic strategy, and the app reports the resulting average penetration.
+- **No mid-shoe entry / re-entry (single deck; on by default).** You can't join a single-deck game
+  mid-shoe, so you must play the first hand after every shuffle, and once you sit out (bet 0) you can't
+  come back until the next shuffle. See *How it works* for how this is modelled.
 - **Boxes you play** (1–5) and **other players at the table**. Each of your boxes gets the same bet.
 - **Playing strategy**
   - *Basic + count indices* – you play optimally for the current count (what a perfect set of index
@@ -50,7 +53,8 @@ an integer.
 - **Default spread:** the table minimum at every count where you have no edge, and the table maximum at
   every count where you have one (a count "has an edge" when its player edge, including insurance
   profit if selected, is above zero).
-- **Custom ramp:** type your own bets (0 sits out), or start from a preset (flat, 1–4, 1–8, 1–12, Wong-out).
+- **Custom ramp:** type your own bets (0 sits out), or start from a preset (flat, 1–4, 1–8, 1–12, Wong-out). With no
+  mid-shoe entry the Wong-out preset bets 1 unit at count 0, because the first hand must be played.
   Bets are limited to the table maximum, and a bet under 1 unit is raised to 1.
 
 ## What you get
@@ -89,6 +93,13 @@ Details that matter:
   bucket is rebuilt from its average cards dealt and running count, treating the count's excess over
   that drift as extra low cards seen in place of high cards. At 6–8 decks the KO rows start at about
   −20, so the ≤ −1 row is most rounds and the ≥ +10 row is a wide range of strongly positive counts.
+- **No mid-shoe entry.** With this rule the rounds you play depend on your own bets, so every simulated
+  shoe is replayed in order against your ramp: the first hand is always played (at least 1 unit), you keep
+  playing until the count says to sit out, and after that you get none of the shoe's remaining rounds.
+  The first hand is a fresh deck at count 0 and is valued on its own; the later rounds that reach the same
+  count are worse for the player (fewer lows would have been dealt than the count's natural drift), so
+  they get a separate edge. The count table's "Frequency" then means the share of rounds you are seated at
+  that count. Flat betting is essentially unaffected; ramps that sit out lose the later rounds.
 - **Multiple boxes.** Edge per unit wagered is unchanged, and profit per round is multiplied by the
   number of boxes. Boxes share one dealer hand, so their results are correlated (measured correlation
   about 0.37, in `test/corr.js`); this is included in the standard deviation and N0. Your boxes also use
