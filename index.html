@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blackjack Edge Calculator</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1b1f27; --muted: #667085; --line: #e3e6eb;
+    --accent: #1f6feb; --good: #12805c; --bad: #c2362b; --bar: #b8c4d6; --field: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1218; --card: #171b23; --ink: #e8ebf0; --muted: #98a2b3; --line: #2a303b;
+      --accent: #5b9dff; --good: #35c58f; --bad: #ff6b60; --bar: #3a4557; --field: #10141b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: 320px 1fr; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+  .stack { display: grid; gap: 16px; }
+  label.f { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-bottom: 9px; }
+  label.f span { color: var(--ink); }
+  select, input[type=number] { background: var(--field); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 8px; font: inherit; min-width: 110px; }
+  input[type=number] { width: 84px; min-width: 0; text-align: right; }
+  input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 6px 0 0; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .kpi { border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .kpi .l { color: var(--muted); font-size: 12px; }
+  .kpi .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .kpi.hero { grid-column: 1 / -1; background: color-mix(in srgb, var(--accent) 7%, var(--card)); }
+  .kpi.hero .v { font-size: 34px; }
+  .good { color: var(--good); } .bad { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  tbody tr:last-child td { border-bottom: 0; }
+  .bkin { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0 24px; margin-bottom: 8px; }
+  .bkin input { width: 110px; }
+  .tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; align-items: center; }
+  button { background: var(--field); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+    padding: 5px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  .tablewrap { overflow-x: auto; }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { fill: var(--muted); font-size: 11px; }
+  .status { color: var(--muted); font-size: 12.5px; min-height: 18px; }
+  details { color: var(--muted); font-size: 13.5px; }
+  details summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+  details ul { padding-left: 18px; margin: 8px 0 0; }
+  details li { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Blackjack Edge Calculator</h1>
+  <p class="sub">Pick the rules, set your bet for each Hi-Lo true count, and get the long-run edge of the whole game.</p>
+
+  <div class="grid">
+    <div class="stack">
+      <div class="card">
+        <h2>Game rules</h2>
+        <label class="f"><span>Decks</span>
+          <select id="decks"><option selected>1</option><option>2</option><option>4</option><option>5</option><option>6</option><option>8</option><option>3</option><option>7</option></select></label>
+        <label class="f"><span>Dealer on soft 17</span>
+          <select id="h17"><option value="0">Stands (S17)</option><option value="1" selected>Hits (H17)</option></select></label>
+        <label class="f"><span>Blackjack pays</span>
+          <select id="bj"><option value="1.5">3 : 2</option><option value="1.4">7 : 5</option><option value="1.2" selected>6 : 5</option><option value="1">1 : 1</option><option value="2">2 : 1</option></select></label>
+        <label class="f"><span>Double allowed on</span>
+          <select id="dbl"><option value="any">Any two cards</option><option value="9-11" selected>9, 10, 11 only</option><option value="10-11">10, 11 only</option></select></label>
+        <label class="f"><span>Double after split</span><input type="checkbox" id="das"></label>
+        <label class="f"><span>Late surrender</span><input type="checkbox" id="sur"></label>
+        <label class="f"><span>Split up to (hands)</span>
+          <select id="maxh"><option value="2">2 (no resplit)</option><option value="3">3</option><option value="4" selected>4</option></select></label>
+        <label class="f"><span>Resplit aces</span><input type="checkbox" id="rsa"></label>
+        <label class="f"><span>Hit split aces</span><input type="checkbox" id="hsa"></label>
+        <p class="hint">Dealer peeks for blackjack (US rules). Insurance is never taken.</p>
+      </div>
+
+      <div class="card">
+        <h2>Play conditions</h2>
+        <label class="f"><span>Bet by</span>
+          <select id="cs"><option value="hilo">Hi-Lo true count</option><option value="ko">KO running count</option><option value="ub" id="csUb" selected>Unbalanced running count (single deck)</option></select></label>
+        <p class="hint" id="csHint" hidden></p>
+        <label class="f" id="shufRow" hidden><span>Single-deck shuffle</span>
+          <select id="shuf"><option value="cut">Cut card at set %</option><option value="auto" selected>Auto (rounds per shuffle)</option></select></label>
+        <label class="f"><span>Penetration (% dealt)</span><input type="number" id="pen" value="80" min="40" max="95" step="1"></label>
+        <p class="hint" id="autoHint" hidden></p>
+        <label class="f"><span>Boxes you play</span><select id="boxes"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option></select></label>
+        <label class="f"><span>Other players at table</span><input type="number" id="others" value="0" min="0" max="6" step="1"></label>
+        <label class="f"><span>Playing strategy</span>
+          <select id="strat"><option value="index">Basic + count indices</option><option value="basic-ins" selected>Basic + insurance at a count threshold</option><option value="basic">Basic strategy only</option></select></label>
+        <label class="f"><span>Rounds per hour</span><input type="number" id="rph" value="100" min="1" max="400"></label>
+        <label class="f" id="insRow" hidden><span id="insLbl">Insure at count ≥</span><input type="number" id="insT" value="3" step="1"></label>
+        <label class="f"><span>Table minimum ($) = 1 unit</span><input type="number" id="tmin" value="15" min="1" step="5"></label>
+        <label class="f"><span>Table maximum ($)</span><input type="number" id="tmax" value="300" min="1" step="25"></label>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="card">
+        <h2>Result</h2>
+        <div class="kpis" id="kpis"></div>
+        <p class="status" id="status"></p>
+      </div>
+
+      <div class="card">
+        <h2>Bankroll · Kelly criterion</h2>
+        <div class="bkin">
+          <label class="f"><span>Risk of ruin (%)</span><input type="number" id="ror" value="5" min="0.01" max="50" step="0.5"></label>
+          <label class="f"><span>Hours of play</span><input type="number" id="hours" value="200" min="1" step="10"></label>
+          <label class="f"><span>Your bankroll ($, optional)</span><input type="number" id="bank" placeholder="—" min="0" step="1000"></label>
+        </div>
+        <div class="kpis" id="bkpis"></div>
+        <p class="hint" id="bhint"></p>
+      </div>
+
+      <div class="card">
+        <h2>Bet per true count</h2>
+        <label class="f"><span>Bet spread</span>
+          <select id="spread"><option value="auto" selected>Table minimum with no edge, table maximum with an edge</option><option value="custom">Custom ramp (edit the bets below)</option></select></label>
+        <div class="tools">
+          <span style="color:var(--muted);font-size:13px">Custom presets:</span>
+          <button data-ramp="flat">Flat 1</button>
+          <button data-ramp="1-4">1–4</button>
+          <button data-ramp="1-8">1–8</button>
+          <button data-ramp="1-12">1–12</button>
+          <button data-ramp="wong">Wong out &lt; +1, then 1–8</button>
+        </div>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th id="thTC">True count</th><th id="thBet">Bet (units)</th><th>Frequency</th><th>Player edge</th><th id="thM">Avg TC in bucket</th><th title="Full-Kelly bet at each count for the bankroll shown above (yours if entered, else the bankroll required)">Full-Kelly bet</th><th>Share of profit</th></tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <p class="hint">1 unit is the table minimum and bets are capped at the table maximum (a bet below 1 unit is raised to 1). The default spread bets the minimum at every count without a player edge and the maximum at every count with one; choose “Custom ramp” to type your own, where 0 sits out. The “≤ −1” bet applies to every count at or below −1, and “≥ +10” to every count at or above +10. Hi-Lo true count is floored to an integer.</p>
+      </div>
+
+      <div class="card">
+        <h2>Edge and frequency by true count</h2>
+        <div id="chart"></div>
+      </div>
+
+      <div class="card">
+        <details>
+          <summary>How it is calculated, and assumptions</summary>
+          <ul>
+            <li><b>Edge per count.</b> For each true-count bucket the shoe composition is rebuilt from the true count and the average decks remaining in that bucket. Every player two-card hand against every dealer upcard is then enumerated, with cards removed from the shoe. The play of each hand (hit, stand, double, split, surrender) is solved exactly, including resplits and the blackjack peek.</li>
+            <li><b>Frequency per count.</b> A seeded 300,000-round shoe simulation of Hi-Lo counting with your deck count, penetration and number of other players gives how often each true count occurs at the start of a round. Other players use a simple hit/stand rule just to consume cards.</li>
+            <li><b>Bet limits.</b> 1 unit is the table minimum; every bet is kept between it and the table maximum. In the default spread a count has “an edge” when its player edge (including insurance profit, if you selected it) is above zero.</li>
+            <li><b>Combining.</b> Overall edge = Σ(frequency × bet × edge) / Σ(frequency × bet). Profit per round is in bet units; a bet of 0 is a sit-out, which is counted as a round dealt but not played.</li>
+            <li><b>Strategy.</b> “Basic + count indices” assumes you play optimally for the current true count, which is what a perfect index-play deviation set achieves. “Basic strategy only” uses the fresh-shoe strategy at every count.</li>
+            <li><b>Insurance.</b> “Basic + insurance” is decided when insurance is offered, i.e. after the round's cards are out: your two cards, every other player's cards and the dealer's ace all update the count before you decide, while your bet was sized on the count at the start of the round. Insurance (a half-unit bet paying 2:1) is taken when that updated count is at or above the threshold you set (default +3): the Hi-Lo true count using the decks left at that moment, or the running count for KO / unbalanced. Its value comes from the simulated shoes: 0.5 × (3 × P(hole card is a ten) − 1) from the cards actually unseen. So a starting bucket can be insured on only some dealer aces (◐). The index-play option does not take insurance.</li>
+            <li><b>Unbalanced counts (KO, and the single-deck A0 system).</b> The count is not divided by decks remaining; bets are keyed to the raw running count since the shuffle. KO tags 2–7 +1, 8–9 0, T–A −1 and starts at −4 × (decks − 1), so it ends near +4 at the bottom of the shoe on average. With these counts the rows are the actual running count (≤ −1 and ≥ +10 are open-ended, so at 6–8 decks the top row covers a wide range of strongly positive counts). Each bucket's shoe is rebuilt from its average cards dealt and running count, treating the count's excess over its natural drift as extra low cards seen in place of high cards.</li>
+            <li><b>Multiple boxes.</b> Each box gets the bet in the table, so the edge per unit wagered is the same as with one box, while expected profit per round is multiplied by the number of boxes. Your boxes use cards from the shoe, so they shift the count distribution (and, with auto shuffle, count toward the players at the table). Boxes share one dealer hand, so their results are correlated (measured correlation about 0.37); that is included in the standard deviation and N0. Rounds per hour is left as you enter it, so lower it when you play more boxes.</li>
+            <li><b>Approximations.</b> After the first three cards, later draws use the remaining composition as fixed probabilities (negligible error for 2+ decks; the engine agrees with real-shoe simulation to about ±0.03% in tests, and with published multi-deck house edges). Per-round variance is taken as 1.32 per unit bet, and the count is the standard Hi-Lo.</li>
+            <li>Not modelled: insurance / side bets, no-hole-card (European) games, cut-card effects, bankroll-dependent bet sizing, and the small extra cards other players' hits remove.</li>
+          </ul>
+        </details>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="engine.js"></script>
+<script>
+(function () {
+  const TCS = []; for (let t = -1; t <= 10; t++) TCS.push(t);
+  const label = (t) => t === -1 ? '≤ −1' : t === 10 ? '≥ +10' : (t > 0 ? '+' + t : String(t));
+  const $ = (id) => document.getElementById(id);
+  let bets = [1, 1, 2, 4, 6, 8, 10, 12, 12, 12, 12, 12];   // custom ramp, in units of the table minimum
+  const limits = { unit: 25, maxU: 20 };
+
+  const ramps = {
+    'flat': () => TCS.map(() => 1),
+    '1-4':  () => TCS.map(t => t <= 0 ? 1 : Math.min(4, 1 + t)),
+    '1-8':  () => TCS.map(t => t <= 0 ? 1 : Math.min(8, 1 + t * 2)),
+    '1-12': () => TCS.map(t => t <= 0 ? 1 : Math.min(12, 1 + t * 2.2 | 0)),
+    'wong': () => TCS.map(t => t <= 0 ? 0 : Math.min(8, t * 2)),
+  };
+
+  const fmtPct = (x, d = 2) => (x * 100).toFixed(d) + '%';
+  const sPct = (x, d = 2) => (x >= 0 ? '+' : '−') + Math.abs(x * 100).toFixed(d) + '%';
+  const money = (x) => (x < 0 ? '−$' : '$') + Math.abs(x).toLocaleString(undefined, { maximumFractionDigits: 0 });
+
+  function readRules() {
+    return {
+      decks: +$('decks').value, h17: $('h17').value === '1', bj: +$('bj').value,
+      doubleRule: $('dbl').value, das: $('das').checked, surrender: $('sur').checked,
+      maxHands: +$('maxh').value, resplitAces: $('rsa').checked, hitSplitAces: $('hsa').checked,
+      pen: $('shuf').value === 'auto' && +$('decks').value === 1 ? 0.8 : Math.min(0.95, Math.max(0.4, (+$('pen').value || 80) / 100)),   // ignored by auto shuffle (its display is derived)
+      others: Math.max(0, Math.min(6, +$('others').value || 0)),
+      boxes: +$('boxes').value || 1,
+      strategy: $('strat').value,
+      autoPen: +$('decks').value === 1 && $('shuf').value === 'auto',
+      countSystem: $('cs').value === 'ko' ? 'ko' : (+$('decks').value === 1 && $('cs').value === 'ub' ? 'ub' : 'hilo'),
+      insThreshold: Number.isFinite(+$('insT').value) && $('insT').value !== '' ? +$('insT').value : 3,
+    };
+  }
+
+  // cache expensive pieces
+  let simKey = '', simVal = null, anKey = '', anVal = null;
+
+  function analysis() {
+    const r = readRules();
+    const sk = [r.decks, r.pen, r.others, r.boxes, r.h17, r.autoPen, r.countSystem, r.insThreshold, r.das, r.maxHands, r.resplitAces, r.hitSplitAces, r.doubleRule, r.surrender].join('|');
+    if (sk !== simKey) { simVal = BJEngine.simulateCounts(BJEngine.normalizeRules(r), 300000); simKey = sk; anKey = ''; }
+    const ak = JSON.stringify(r);
+    if (ak !== anKey) { anVal = BJEngine.analyze(r, { sim: simVal }); anKey = ak; }
+    return anVal;
+  }
+
+  function buildRows() {
+    const tb = $('rows'); tb.innerHTML = '';
+    TCS.forEach((t, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td data-c="l">${label(t)}</td>
+        <td><input type="number" min="0" step="0.5" value="${bets[i]}" data-i="${i}"></td>
+        <td data-c="f"></td><td data-c="e"></td><td data-c="m"></td><td data-c="k"></td><td data-c="s"></td>`;
+      tb.appendChild(tr);
+    });
+    tb.querySelectorAll('input').forEach(inp => inp.addEventListener('input', () => {
+      bets[+inp.dataset.i] = Math.max(0, +inp.value || 0); render();
+    }));
+    tb.querySelectorAll('input').forEach(inp => inp.addEventListener('change', render));
+  }
+
+  function kpi(l, v, cls, hero) {
+    return `<div class="kpi${hero ? ' hero' : ''}"><div class="l">${l}</div><div class="v ${cls || ''}">${v}</div></div>`;
+  }
+
+  function render() {
+    const an = analysis();
+    const one = +$('decks').value === 1, auto = an.rules.autoPen;
+    $('shufRow').hidden = !one;
+    $('csUb').disabled = !one;
+    if (!one && $('cs').value === 'ub') $('cs').value = 'hilo';
+    const ub = an.sim.ub, sys = an.sim.sys;
+    $('csHint').hidden = !ub;
+    if (ub) $('csHint').textContent = sys === 'ko'
+      ? `KO tags: 2–7 +1 · 8–9 0 · T–A −1. The running count starts at ${an.sim.irc} (−4 × (decks − 1)) after each shuffle, and the bet rows below are keyed to it.`
+      : 'Tags: A 0 · 2–6 +1 · 7–9 0 · T–K −1. The running count starts at 0 after each shuffle, and the bet rows below are keyed to it.';
+    $('insRow').hidden = an.rules.strategy !== 'basic-ins';
+    $('insLbl').textContent = ub ? 'Insure at running count ≥' : 'Insure at true count ≥';
+    $('thTC').textContent = ub ? 'Running count' : 'True count';
+    $('thBet').textContent = an.rules.boxes > 1 ? 'Bet per box (units)' : 'Bet (units)';
+    $('thM').textContent = ub ? 'Avg count in bucket' : 'Avg TC in bucket';
+    $('pen').disabled = auto;
+    $('autoHint').hidden = !auto;
+    if (auto) {
+      const n = an.sim.roundsPerShuffle, pl = an.rules.others + an.rules.boxes;
+      $('pen').value = Math.round(an.sim.avgPen * 100);
+      $('autoHint').textContent = `${pl} spot${pl > 1 ? 's' : ''} (your boxes + other players): ${n} rounds dealt per shuffle → average penetration ${(an.sim.avgPen * 100).toFixed(1)}% (${(an.sim.avgPen * 52).toFixed(1)} cards), assuming everyone plays basic strategy.`;
+    }
+    const minD = Math.max(1, +$('tmin').value || 1), maxD = Math.max(minD, +$('tmax').value || minD);
+    limits.unit = minD; limits.maxU = maxD / minD;
+    const autoSpread = $('spread').value === 'auto';
+    const eff = autoSpread ? an.buckets.map(b => b.edge > 0 ? limits.maxU : 1)
+                     : bets.map(v => v > 0 ? Math.min(limits.maxU, Math.max(1, v)) : 0);
+    $('rows').querySelectorAll('input').forEach((inp, i) => {
+      inp.disabled = autoSpread; inp.max = limits.maxU;
+      if (document.activeElement !== inp) inp.value = +eff[i].toFixed(2);
+    });
+    const res = BJEngine.evaluateBets(an, eff, { roundsPerHour: +$('rph').value || 100, unit: minD, boxes: an.rules.boxes });
+    const oe = res.overallEdge;
+    const heroLabel = oe >= 0 ? 'Player edge over the long run (per unit wagered)' : 'House edge over the long run (per unit wagered)';
+    $('kpis').innerHTML =
+      kpi(heroLabel, oe >= 0 ? sPct(oe, 3) : fmtPct(-oe, 3), oe >= 0 ? 'good' : 'bad', true) +
+      kpi('Flat-bet edge (same game)', sPct(res.flatEdge, 2), res.flatEdge >= 0 ? 'good' : 'bad') +
+      kpi('Fresh-shoe basic strategy', sPct(an.freshEdge, 2), an.freshEdge >= 0 ? 'good' : 'bad') +
+      kpi(an.rules.boxes > 1 ? 'Average bet per box' : 'Average bet when playing', res.avgBet.toFixed(2) + ' units') +
+      (an.rules.boxes > 1 ? kpi('Average action per round', res.avgAction.toFixed(2) + ' units') : '') +
+      kpi('Expected profit / round', (res.evPerRound >= 0 ? '+' : '−') + Math.abs(res.evPerRound).toFixed(4) + ' units', res.evPerRound >= 0 ? 'good' : 'bad') +
+      kpi('Expected profit / hour', money(res.dollarsPerHour), res.dollarsPerHour >= 0 ? 'good' : 'bad') +
+      kpi('Std. dev. / round', res.sdPerRound.toFixed(2) + ' units') +
+      kpi('N0 (rounds to 1 SD)', isFinite(res.n0) ? Math.round(res.n0).toLocaleString() : '—');
+    bankrollPanel(an, res);
+    $('status').textContent = `Hands played: ${fmtPct(res.handsPlayedPct, 1)} of rounds dealt · strategy: ${{ index: 'basic + indices', basic: 'basic only', 'basic-ins': 'basic + insurance (⚑ always insured, ◐ sometimes)' }[an.rules.strategy]}`;
+
+    const evs = an.buckets.map((b, i) => b.freq * (eff[i] || 0) * b.edge);
+    const evTotal = evs.reduce((a, b) => a + b, 0);
+    const trs = $('rows').querySelectorAll('tr');
+    an.buckets.forEach((b, i) => {
+      const tr = trs[i];
+      const mark = b.insFrac >= 0.95 ? ' ⚑' : b.insFrac > 0.05 ? ' ◐' : '';
+      tr.querySelector('[data-c=l]').textContent = label(b.tc) + mark;
+      tr.querySelector('[data-c=l]').title = an.rules.strategy === 'basic-ins' ? `Insurance taken on ${(b.insFrac * 100).toFixed(0)}% of dealer aces at this starting count` : '';
+      tr.querySelector('[data-c=f]').textContent = fmtPct(b.freq, 2);
+      const e = tr.querySelector('[data-c=e]');
+      e.textContent = sPct(b.edge, 2); e.className = b.edge >= 0 ? 'good' : 'bad';
+      tr.querySelector('[data-c=m]').textContent = (b.meanTC >= 0 ? '+' : '−') + Math.abs(b.meanTC).toFixed(2);
+      tr.querySelector('[data-c=s]').textContent = evTotal !== 0 && (eff[i] || 0) > 0 ? ((evs[i] / evTotal) * 100).toFixed(1) + '%' : '—';
+    });
+    chart(an);
+  }
+
+  const kfmt = (x) => isFinite(x) ? money(x) : '—';
+  function bankrollPanel(an, res) {
+    const unit = limits.unit, boxes = an.rules.boxes;
+    const ror = Math.min(0.5, Math.max(0.0001, (+$('ror').value || 5) / 100));
+    const hours = Math.max(1, +$('hours').value || 1), rph = +$('rph').value || 100;
+    const bank = +$('bank').value || 0;
+    const pl = BJEngine.bankrollPlan(res, { ror, hours, roundsPerHour: rph, unit, bankroll: bank });
+    const pos = res.evPerRound > 0;
+    let h = '';
+    if (!pos) {
+      h = kpi('Result', 'No positive expectation', 'bad', true);
+      $('bhint').textContent = 'With this game and bet ramp the expected profit is not positive, so no bankroll can be safe: ruin is certain in the long run. Kelly betting would bet nothing.';
+    } else {
+      const rp = (x) => (x * 100).toFixed(x < 0.001 ? 3 : x < 0.1 ? 2 : 1) + '%';
+      h += kpi(`Bankroll for ${(ror * 100).toFixed(ror < 0.1 ? 2 : 1).replace(/\.?0+$/, '')}% ruin over ${hours.toLocaleString()} h`, kfmt(pl.reqHours * unit), '', true);
+      h += kpi('…and for ruin ever (never quitting)', kfmt(pl.reqForever * unit));
+      h += kpi('Full-Kelly bankroll', kfmt(pl.fullKelly * unit));
+      h += kpi('Required vs. Kelly (hours horizon)', (pl.reqHours / pl.fullKelly).toFixed(2) + '× Kelly bankroll');
+      h += kpi(`Expected profit, ${hours.toLocaleString()} h`, (pl.expected >= 0 ? '+' : '−') + kfmt(Math.abs(pl.expected * unit)), 'good');
+      h += kpi('Std. deviation, same period', kfmt(pl.sd * unit));
+      if (pl.given) {
+        h += kpi(`Your ${kfmt(bank)}: ruin in ${hours.toLocaleString()} h`, rp(pl.given.ruinHours), pl.given.ruinHours > ror ? 'bad' : 'good');
+        h += kpi('Your bankroll: ruin ever', rp(pl.given.ruinForever), pl.given.ruinForever > ror ? 'bad' : 'good');
+        h += kpi('Your ramp as % of full Kelly', (pl.given.kellyFraction * 100).toFixed(0) + '%');
+      }
+      $('bhint').textContent = `Assumes ${rph} rounds/hour, so ${pl.rounds.toLocaleString()} rounds; ruin = losing the whole bankroll with the ramp fixed (no resizing). Full Kelly bets bankroll × edge / variance and has a 13.5% chance of ruin ever; the “Full-Kelly bet” column (capped at the table maximum) uses ${bank > 0 ? 'your bankroll' : 'the required bankroll'}.`;
+    }
+    $('bkpis').innerHTML = h;
+    // Kelly bet column
+    const Bk = pos ? (bank > 0 ? bank / unit : pl.reqHours) : 0;
+    const trs = $('rows').querySelectorAll('tr');
+    an.buckets.forEach((b, i) => {
+      const kb = pos ? Math.min(limits.maxU, BJEngine.kellyBet(b.edge, Bk, boxes)) : 0;   // capped at the table maximum
+      trs[i].querySelector('[data-c=k]').textContent = kb > 0 ? kb.toFixed(1) : '—';
+    });
+  }
+
+  function chart(an) {
+    const W = 720, H = 300, L = 44, R = 10, T = 14, B = 34, mid = 150;
+    const n = an.buckets.length, bw = (W - L - R) / n;
+    const maxE = Math.max(1, ...an.buckets.map(b => Math.abs(b.edge * 100)));
+    const maxF = Math.max(...an.buckets.map(b => b.freq * 100));
+    const fTop = mid + 26, fScale = (H - B - fTop) / maxF;
+    // edge chart: baseline in the vertical middle of the upper area
+    const top = T, bot = mid - 8, base = (top + bot) / 2, half = (bot - top) / 2;
+    const es = half / maxE;
+    let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Edge and frequency by true count">`;
+    s += `<line x1="${L}" x2="${W - R}" y1="${base}" y2="${base}" stroke="var(--line)"/>`;
+    [-maxE, 0, maxE].forEach(v => { s += `<text x="${L - 6}" y="${base - v * es + 4}" text-anchor="end">${v > 0 ? '+' : ''}${v.toFixed(1)}%</text>`; });
+    an.buckets.forEach((b, i) => {
+      const x = L + i * bw + bw * 0.15, w = bw * 0.7, e = b.edge * 100, h = Math.abs(e) * es;
+      s += `<rect x="${x}" y="${e >= 0 ? base - h : base}" width="${w}" height="${Math.max(h, 0.5)}" rx="2" fill="${e >= 0 ? 'var(--good)' : 'var(--bad)'}"><title>TC ${label(b.tc)}: edge ${sPct(b.edge, 2)}</title></rect>`;
+    });
+    s += `<text x="${L}" y="${mid + 14}" style="font-weight:600">Frequency of each true count (% of rounds)</text>`;
+    an.buckets.forEach((b, i) => {
+      const x = L + i * bw + bw * 0.15, w = bw * 0.7, f = b.freq * 100, h = f * fScale;
+      s += `<rect x="${x}" y="${H - B - h}" width="${w}" height="${Math.max(h, 0.5)}" rx="2" fill="var(--bar)"><title>TC ${label(b.tc)}: ${f.toFixed(2)}% of rounds</title></rect>`;
+      s += `<text x="${x + w / 2}" y="${H - B - h - 3}" text-anchor="middle">${f >= 1 ? f.toFixed(0) : f.toFixed(1)}</text>`;
+      s += `<text x="${x + w / 2}" y="${H - 16}" text-anchor="middle">${label(b.tc)}</text>`;
+    });
+    s += `</svg>`;
+    $('chart').innerHTML = s;
+  }
+
+  // wiring
+  let timer = null;
+  function schedule() { $('status').textContent = 'Calculating…'; clearTimeout(timer); timer = setTimeout(render, 30); }
+  ['insT', 'spread', 'tmin', 'tmax', 'ror', 'hours', 'bank', 'decks', 'shuf', 'cs', 'boxes', 'h17', 'bj', 'dbl', 'das', 'sur', 'maxh', 'rsa', 'hsa', 'pen', 'others', 'strat', 'rph']
+    .forEach(id => $(id).addEventListener('input', schedule));
+  document.querySelectorAll('[data-ramp]').forEach(btn => btn.addEventListener('click', () => {
+    bets = ramps[btn.dataset.ramp](); $('spread').value = 'custom'; buildRows(); render();
+  }));
+
+  buildRows(); render();
+})();
+</script>
+</body>
+</html>
